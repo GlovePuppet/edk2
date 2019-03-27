@@ -2544,6 +2544,16 @@ DriverEntry (
     return Status;
   }
 
+
+  if (PcdGet8 (PcdTpm2InitializationPolicy) == 1) {
+    Status = Tpm2Startup (TPM_SU_CLEAR);
+    if (EFI_ERROR (Status)) {
+      DEBUG ((DEBUG_ERROR, "TPM2 Startup Failed!\n"));
+      return Status;
+    }
+  }
+
+
   //
   // Fill information
   //
