@@ -21,6 +21,7 @@ WITHOUT WARRANTIES OR REPRESENTATIONS OF ANY KIND, EITHER EXPRESS OR IMPLIED.
 #include <Library/DebugLib.h>
 #include <Library/Tpm2DeviceLib.h>
 #include <Library/PcdLib.h>
+#include <Library/TpmIoLib.h>
 
 #include <IndustryStandard/TpmPtp.h>
 #include <IndustryStandard/TpmTis.h>
@@ -51,7 +52,7 @@ Tpm2IsPtpPresence (
 {
   UINT8                             RegRead;
 
-  RegRead = MmioRead8 ((UINTN)Reg);
+  RegRead = TpmIoRead8 ((UINTN)Reg);
   if (RegRead == 0xFF) {
     //
     // No TPM chip
@@ -84,7 +85,7 @@ PtpCrbWaitRegisterBits (
   UINT32                            WaitTime;
 
   for (WaitTime = 0; WaitTime < TimeOut; WaitTime += 30){
-    RegRead = MmioRead32 ((UINTN)Register);
+    RegRead = TpmIoRead32 ((UINTN)Register);
     if ((RegRead & BitSet) == BitSet && (RegRead & BitClear) == 0) {
       return EFI_SUCCESS;
     }
@@ -114,7 +115,7 @@ PtpCrbRequestUseTpm (
     return EFI_NOT_FOUND;
   }
 
-  MmioWrite32((UINTN)&CrbReg->LocalityControl, PTP_CRB_LOCALITY_CONTROL_REQUEST_ACCESS);
+  TpmIoWrite32((UINTN)&CrbReg->LocalityControl, PTP_CRB_LOCALITY_CONTROL_REQUEST_ACCESS);
   Status = PtpCrbWaitRegisterBits (
              &CrbReg->LocalityStatus,
              PTP_CRB_LOCALITY_STATUS_GRANTED,
@@ -180,7 +181,7 @@ PtpCrbTpmCommand (
   // STEP 0:
   // if CapCRbIdelByPass == 0, enforce Idle state before sending command
   //
-  if (PcdGet8(PcdCRBIdleByPass) == 0 && (MmioRead32((UINTN)&CrbReg->CrbControlStatus) & PTP_CRB_CONTROL_AREA_STATUS_TPM_IDLE) == 0){
+  if (PcdGet8(PcdCRBIdleByPass) == 0 && (TpmIoRead32((UINTN)&CrbReg->CrbControlStatus) & PTP_CRB_CONTROL_AREA_STATUS_TPM_IDLE) == 0){
     Status = PtpCrbWaitRegisterBits (
               &CrbReg->CrbControlStatus,
               PTP_CRB_CONTROL_AREA_STATUS_TPM_IDLE,
@@ -202,7 +203,7 @@ PtpCrbTpmCommand (
   // of 1 by software to Request.cmdReady, as indicated by the Status field
   // being cleared to 0.
   //
-  MmioWrite32((UINTN)&CrbReg->CrbControlRequest, PTP_CRB_CONTROL_AREA_REQUEST_COMMAND_READY);
+  TpmIoWrite32((UINTN)&CrbReg->CrbControlRequest, PTP_CRB_CONTROL_AREA_REQUEST_COMMAND_READY);
   Status = PtpCrbWaitRegisterBits (
              &CrbReg->CrbControlRequest,
              0,
@@ -231,21 +232,21 @@ PtpCrbTpmCommand (
   // of 1 to Start.
   //
   for (Index = 0; Index < SizeIn; Index++) {
-    MmioWrite8 ((UINTN)&CrbReg->CrbDataBuffer[Index], BufferIn[Index]);
+    TpmIoWrite8 ((UINTN)&CrbReg->CrbDataBuffer[Index], BufferIn[Index]);
   }
-  MmioWrite32 ((UINTN)&CrbReg->CrbControlCommandAddressHigh, (UINT32)RShiftU64 ((UINTN)CrbReg->CrbDataBuffer, 32));
-  MmioWrite32 ((UINTN)&CrbReg->CrbControlCommandAddressLow, (UINT32)(UINTN)CrbReg->CrbDataBuffer);
-  MmioWrite32 ((UINTN)&CrbReg->CrbControlCommandSize, sizeof(CrbReg->CrbDataBuffer));
+  TpmIoWrite32 ((UINTN)&CrbReg->CrbControlCommandAddressHigh, (UINT32)RShiftU64 ((UINTN)CrbReg->CrbDataBuffer, 32));
+  TpmIoWrite32 ((UINTN)&CrbReg->CrbControlCommandAddressLow, (UINT32)(UINTN)CrbReg->CrbDataBuffer);
+  TpmIoWrite32 ((UINTN)&CrbReg->CrbControlCommandSize, sizeof(CrbReg->CrbDataBuffer));
 
-  MmioWrite64 ((UINTN)&CrbReg->CrbControlResponseAddrss, (UINT32)(UINTN)CrbReg->CrbDataBuffer);
-  MmioWrite32 ((UINTN)&CrbReg->CrbControlResponseSize, sizeof(CrbReg->CrbDataBuffer));
+  TpmIoWrite64 ((UINTN)&CrbReg->CrbControlResponseAddrss, (UINT32)(UINTN)CrbReg->CrbDataBuffer);
+  TpmIoWrite32 ((UINTN)&CrbReg->CrbControlResponseSize, sizeof(CrbReg->CrbDataBuffer));
 
   //
   // STEP 3:
   // Command Execution occurs after receipt of a 1 to Start and the TPM
   // clearing Start to 0.
   //
-  MmioWrite32((UINTN)&CrbReg->CrbControlStart, PTP_CRB_CONTROL_START);
+  TpmIoWrite32((UINTN)&CrbReg->CrbControlStart, PTP_CRB_CONTROL_START);
   Status = PtpCrbWaitRegisterBits (
              &CrbReg->CrbControlStart,
              0,
@@ -257,14 +258,14 @@ PtpCrbTpmCommand (
     // Command Completion check timeout. Cancel the currently executing command by writing TPM_CRB_CTRL_CANCEL,
     // Expect TPM_RC_CANCELLED or successfully completed response.
     //
-    MmioWrite32((UINTN)&CrbReg->CrbControlCancel, PTP_CRB_CONTROL_CANCEL);
+    TpmIoWrite32((UINTN)&CrbReg->CrbControlCancel, PTP_CRB_CONTROL_CANCEL);
     Status = PtpCrbWaitRegisterBits (
                &CrbReg->CrbControlStart,
                0,
                PTP_CRB_CONTROL_START,
                PTP_TIMEOUT_B
                );
-    MmioWrite32((UINTN)&CrbReg->CrbControlCancel, 0);
+    TpmIoWrite32((UINTN)&CrbReg->CrbControlCancel, 0);
 
     if (EFI_ERROR(Status)) {
       //
@@ -286,7 +287,7 @@ PtpCrbTpmCommand (
   // Get response data header
   //
   for (Index = 0; Index < sizeof (TPM2_RESPONSE_HEADER); Index++) {
-    BufferOut[Index] = MmioRead8 ((UINTN)&CrbReg->CrbDataBuffer[Index]);
+    BufferOut[Index] = TpmIoRead8 ((UINTN)&CrbReg->CrbDataBuffer[Index]);
   }
   DEBUG_CODE (
     DEBUG ((EFI_D_VERBOSE, "PtpCrbTpmCommand ReceiveHeader - "));
@@ -320,7 +321,7 @@ PtpCrbTpmCommand (
   // Continue reading the remaining data
   //
   for (Index = sizeof (TPM2_RESPONSE_HEADER); Index < TpmOutSize; Index++) {
-    BufferOut[Index] = MmioRead8 ((UINTN)&CrbReg->CrbDataBuffer[Index]);
+    BufferOut[Index] = TpmIoRead8 ((UINTN)&CrbReg->CrbDataBuffer[Index]);
   }
 
   DEBUG_CODE (
@@ -337,7 +338,7 @@ GoReady_Exit:
   // If not supported. flow down to GoIdle
   //
   if (PcdGet8(PcdCRBIdleByPass) == 1) {
-    MmioWrite32((UINTN)&CrbReg->CrbControlRequest, PTP_CRB_CONTROL_AREA_REQUEST_COMMAND_READY);
+    TpmIoWrite32((UINTN)&CrbReg->CrbControlRequest, PTP_CRB_CONTROL_AREA_REQUEST_COMMAND_READY);
     return Status;
   }
 
@@ -350,7 +351,7 @@ GoIdle_Exit:
   //
   //  Return to Idle state by setting TPM_CRB_CTRL_STS_x.Status.goIdle to 1.
   //
-  MmioWrite32((UINTN)&CrbReg->CrbControlRequest, PTP_CRB_CONTROL_AREA_REQUEST_GO_IDLE);
+  TpmIoWrite32((UINTN)&CrbReg->CrbControlRequest, PTP_CRB_CONTROL_AREA_REQUEST_GO_IDLE);
 
   //
   // Only enforce Idle state transition if execution fails when CRBIndleBypass==1
@@ -429,8 +430,8 @@ Tpm2GetPtpInterface (
   //
   // Check interface id
   //
-  InterfaceId.Uint32 = MmioRead32 ((UINTN)&((PTP_CRB_REGISTERS *)Register)->InterfaceId);
-  InterfaceCapability.Uint32 = MmioRead32 ((UINTN)&((PTP_FIFO_REGISTERS *)Register)->InterfaceCapability);
+  InterfaceId.Uint32 = TpmIoRead32 ((UINTN)&((PTP_CRB_REGISTERS *)Register)->InterfaceId);
+  InterfaceCapability.Uint32 = TpmIoRead32 ((UINTN)&((PTP_FIFO_REGISTERS *)Register)->InterfaceCapability);
 
   if ((InterfaceId.Bits.InterfaceType == PTP_INTERFACE_IDENTIFIER_INTERFACE_TYPE_CRB) &&
       (InterfaceId.Bits.InterfaceVersion == PTP_INTERFACE_IDENTIFIER_INTERFACE_VERSION_CRB) &&
@@ -463,7 +464,7 @@ Tpm2GetIdleByPass (
   //
   // Check interface id
   //
-  InterfaceId.Uint32 = MmioRead32 ((UINTN)&((PTP_CRB_REGISTERS *)Register)->InterfaceId);
+  InterfaceId.Uint32 = TpmIoRead32 ((UINTN)&((PTP_CRB_REGISTERS *)Register)->InterfaceId);
 
   return (UINT8)(InterfaceId.Bits.CapCRBIdleBypass);
 }
@@ -490,9 +491,9 @@ DumpPtpInfo (
     return ;
   }
 
-  InterfaceId.Uint32 = MmioRead32 ((UINTN)&((PTP_CRB_REGISTERS *)Register)->InterfaceId);
-  InterfaceCapability.Uint32 = MmioRead32 ((UINTN)&((PTP_FIFO_REGISTERS *)Register)->InterfaceCapability);
-  StatusEx = MmioRead8 ((UINTN)&((PTP_FIFO_REGISTERS *)Register)->StatusEx);
+  InterfaceId.Uint32 = TpmIoRead32 ((UINTN)&((PTP_CRB_REGISTERS *)Register)->InterfaceId);
+  InterfaceCapability.Uint32 = TpmIoRead32 ((UINTN)&((PTP_FIFO_REGISTERS *)Register)->InterfaceCapability);
+  StatusEx = TpmIoRead8 ((UINTN)&((PTP_FIFO_REGISTERS *)Register)->StatusEx);
 
   //
   // Dump InterfaceId Register for PTP
@@ -529,15 +530,15 @@ DumpPtpInfo (
   DEBUG ((EFI_D_INFO, "PtpInterface - %x\n", PtpInterface));
   switch (PtpInterface) {
   case Tpm2PtpInterfaceCrb:
-    Vid = MmioRead16 ((UINTN)&((PTP_CRB_REGISTERS *)Register)->Vid);
-    Did = MmioRead16 ((UINTN)&((PTP_CRB_REGISTERS *)Register)->Did);
+    Vid = TpmIoRead16 ((UINTN)&((PTP_CRB_REGISTERS *)Register)->Vid);
+    Did = TpmIoRead16 ((UINTN)&((PTP_CRB_REGISTERS *)Register)->Did);
     Rid = (UINT8)InterfaceId.Bits.Rid;
     break;
   case Tpm2PtpInterfaceFifo:
   case Tpm2PtpInterfaceTis:
-    Vid = MmioRead16 ((UINTN)&((PTP_FIFO_REGISTERS *)Register)->Vid);
-    Did = MmioRead16 ((UINTN)&((PTP_FIFO_REGISTERS *)Register)->Did);
-    Rid = MmioRead8 ((UINTN)&((PTP_FIFO_REGISTERS *)Register)->Rid);
+    Vid = TpmIoRead16 ((UINTN)&((PTP_FIFO_REGISTERS *)Register)->Vid);
+    Did = TpmIoRead16 ((UINTN)&((PTP_FIFO_REGISTERS *)Register)->Did);
+    Rid = TpmIoRead8 ((UINTN)&((PTP_FIFO_REGISTERS *)Register)->Rid);
     break;
   default:
     break;

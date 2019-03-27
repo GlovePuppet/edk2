@@ -82,6 +82,10 @@
   #
   TcgStorageOpalLib|Include/Library/TcgStorageOpalLib.h
 
+  ## @libraryclass  Provides abstracted IO for TPM2
+  #
+  TpmIoLib|Include/Library/TpmIoLib.h
+
 [Guids]
   ## Security package token space guid.
   # Include/Guid/SecurityPkgTokenSpace.h
